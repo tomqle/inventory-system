@@ -2,7 +2,7 @@ from re import I
 from django.db.utils import ConnectionDoesNotExist, IntegrityError
 from django.utils.text import slugify
 from rest_framework import response
-from inventory.models import Allocation, Batch, InboundShipment, InboundShipmentLine, OrderLine, Product, PurchaseOrder, PurchaseOrderLine, Reception
+from inventory.models import Address, Allocation, Batch, Customer, InboundShipment, InboundShipmentLine, SalesOrder, SalesOrderLine, Product, PurchaseOrder, PurchaseOrderLine, Reception, Supplier
 from typing import List, Optional, Set
 
 
@@ -12,7 +12,7 @@ from typing import List, Optional, Set
 class OutOfStock(Exception):
     pass
 
-def allocate(line: OrderLine, batches: List[Batch]) -> List[str]:
+def allocate(line: SalesOrderLine, batches: List[Batch]) -> List[str]:
     try:
         for batch in sorted(batches):
             batch.allocate(line)
@@ -216,7 +216,94 @@ def _update_reception(reception, qty):
 # -------------------- END Reception services -------------------- #
 
 
+# -------------------- START Customer services -------------------- #
+
+
+def create_customer(**kwargs):
+    if 'status' in kwargs.keys():
+        if kwargs['status'] == None or kwargs['status'] == '':
+            kwargs['status'] = 'ACT'
+        elif kwargs['status'] not in [x for (x, y) in Customer.STATUS_CHOICES]:
+            return Customer()
+
+    address_data = kwargs.pop('address')
+    customer = Customer.objects.create(**kwargs)
+    customer.address = create_address(**address_data)
+    customer.save()
+
+    return customer
+
+def update_customer(customer_id, **kwargs):
+    customer = Customer.objects.get(id=customer_id)
+    if 'status' in kwargs.keys():
+        if kwargs['status'] not in [x for (x, y) in Customer.STATUS_CHOICES]:
+            kwargs['status'] = customer.status
+
+    address_data = kwargs.pop('address')
+    Customer.objects.filter(pk=customer_id).update(**kwargs)
+
+    customer = Customer.objects.get(id=customer_id)
+    update_address(customer.address_id, **address_data)
+    customer.save()
+
+    return customer
+
+
+# -------------------- END Customer services -------------------- #
+
+
+# -------------------- START Supplier services -------------------- #
+
+
+def create_supplier(**kwargs):
+    if 'status' in kwargs.keys():
+        if kwargs['status'] == None or kwargs['status'] == '':
+            kwargs['status'] = 'ACT'
+        elif kwargs['status'] not in [x for (x, y) in Supplier.STATUS_CHOICES]:
+            return Supplier()
+
+    address_data = kwargs.pop('address')
+    supplier = Supplier.objects.create(**kwargs)
+    supplier.address = create_address(**address_data)
+    supplier.save()
+
+    return supplier
+
+
+def update_supplier(supplier_id, **kwargs):
+    supplier = Supplier.objects.get(id=supplier_id)
+    if 'status' in kwargs.keys():
+        if kwargs['status'] not in [x for (x, y) in Supplier.STATUS_CHOICES]:
+            kwargs['status'] = supplier.status
+
+    address_data = kwargs.pop('address')
+    Supplier.objects.filter(pk=supplier_id).update(**kwargs)
+
+    supplier = Supplier.objects.get(id=supplier_id)
+    update_address(supplier.address_id, **address_data)
+    supplier.save()
+
+    return supplier
+
+
+# -------------------- END Supplier services -------------------- #
+
+
+# -------------------- START Address services -------------------- #
+
+
+def create_address(**kwargs):
+    return Address.objects.create(**kwargs)
+
+def update_address(address_id, **kwargs):
+    return Address.objects.update(**kwargs)
+
+
+# -------------------- END Address services -------------------- #
+
+
 # -------------------- START InboundShipment services -------------------- #
+
 
 def create_inbound_shipment(**kwargs) -> InboundShipment:
     if 'reference' in kwargs.keys():
@@ -309,6 +396,7 @@ def _inbound_shipment_has_valid_reference(reference):
 
 
 # END   Helper #
+
 
 # -------------------- END InboundShipment services -------------------- #
 

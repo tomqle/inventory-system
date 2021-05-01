@@ -4,7 +4,18 @@ from django.db.models import fields
 from django.db.utils import IntegrityError
 from datetime import datetime
 
+from polymorphic.models import PolymorphicModel
+
 # Create your models here.
+
+
+class Address(models.Model):
+    address1 = models.CharField(max_length=100, null=True, blank=True, default='')
+    address2 = models.CharField(max_length=100, null=True, blank=True, default='')
+    city = models.CharField(max_length=100, null=True, blank=True, default='')
+    state = models.CharField(max_length=100, null=True, blank=True, default='')
+    country = models.CharField(max_length=100, null=True, blank=True, default='')
+    postal_code = models.CharField(max_length=100, null=True, blank=True, default='')
 
 
 class Supplier(models.Model):
@@ -17,17 +28,12 @@ class Supplier(models.Model):
     ]
 
     status = models.CharField(max_length=3, choices=STATUS_CHOICES, default=ACTIVE)
-    company_name = models.CharField(max_length=100, blank=True, default='')
-    contact_name = models.CharField(max_length=100, blank=True, default='')
+    company = models.CharField(max_length=100, blank=True, default='')
+    name = models.CharField(max_length=100, blank=True, default='')
     email = models.CharField(max_length=100, null=True, blank=True, default='')
     phone = models.CharField(max_length=100, null=True, blank=True, default='')
-    address1 = models.CharField(max_length=100, null=True, blank=True, default='')
-    address2 = models.CharField(max_length=100, null=True, blank=True, default='')
-    city = models.CharField(max_length=100, null=True, blank=True, default='')
-    state = models.CharField(max_length=100, null=True, blank=True, default='')
-    country = models.CharField(max_length=100, null=True, blank=True, default='')
-    zipcode = models.CharField(max_length=100, null=True, blank=True, default='')
     payment_terms = models.CharField(max_length=100, null=True, blank=True, default='')
+    address = models.ForeignKey(Address, on_delete=models.RESTRICT, null=True, blank=True)
 
 
 class Customer(models.Model):
@@ -40,17 +46,12 @@ class Customer(models.Model):
     ]
 
     status = models.CharField(max_length=3, choices=STATUS_CHOICES, default=ACTIVE)
-    company_name = models.CharField(max_length=100, blank=True, default='')
-    contact_name = models.CharField(max_length=100, blank=True, default='')
+    company = models.CharField(max_length=100, blank=True, default='')
+    name = models.CharField(max_length=100, blank=True, default='')
     email = models.CharField(max_length=100, null=True, blank=True, default='')
     phone = models.CharField(max_length=100, null=True, blank=True, default='')
-    address1 = models.CharField(max_length=100, null=True, blank=True, default='')
-    address2 = models.CharField(max_length=100, null=True, blank=True, default='')
-    city = models.CharField(max_length=100, null=True, blank=True, default='')
-    state = models.CharField(max_length=100, null=True, blank=True, default='')
-    country = models.CharField(max_length=100, null=True, blank=True, default='')
-    zipcode = models.CharField(max_length=100, null=True, blank=True, default='')
     payment_terms = models.CharField(max_length=100, null=True, blank=True, default='')
+    address = models.ForeignKey(Address, on_delete=models.RESTRICT, null=True, blank=True)
 
 
 class Product(models.Model):
@@ -73,8 +74,14 @@ class Product(models.Model):
     def qty(self) -> int:
         return sum(batch.available_qty for batch in self.batch_set.all())
 
+    @property
+    def incoming_qty(self) -> int:
+        return sum(po_line.incoming_qty for po_line in self.purchaseorderline_set.all())
 
-class Order(models.Model):
+#class TransactionLineOut(models.Model):
+    #pass
+
+class SalesOrder(models.Model):
     NEW = 'NEW'
     AWAITING_PAYMENT = "PMT"
     PROCESSING = 'PRC'
@@ -102,23 +109,31 @@ class Order(models.Model):
     #reference = models.CharField(max_length=100, blank=True, null=True, default='', unique=True)
     status = models.CharField(max_length=3, choices=STATUS_CHOICES, default=NEW)
     customer = models.ForeignKey(Customer, on_delete=models.RESTRICT, blank=True, null=True)
+    #shipping = models.FloatField(blank=True, default=0.0)
+    #surcharge = models.FloatField(blank=True, default=0.0)
+    #discount = models.FloatField(blank=True, default=0.0)
+
+    @property
+    def subtotal(self) -> float:
+        return sum(order_line.subtotal for order_line in self.orderline_set.all())
 
     @property
     def total(self) -> float:
-        return sum(order_line.subtotal for order_line in self.orderline_set.all())
+        return self.subtotal #+ self.shipping + self.surcharge - self.discount
 
     @property
     def quantity(self) -> int:
         return sum(order_line.qty for order_line in self.orderline_set.all())
 
 
-class OrderLine(models.Model):
+class SalesOrderLine(models.Model):
     order_ref = models.CharField(max_length=100, blank=True, default='')
     sku = models.CharField(max_length=100, blank=True, default='')
     qty = models.IntegerField()
-    price = models.FloatField()
+    cost = models.FloatField(blank=True, default=0.0)
+    price = models.FloatField(blank=True, default=0.0)
     product = models.ForeignKey(Product, on_delete=models.RESTRICT, blank=True, null=True)
-    order = models.ForeignKey(Order, on_delete=models.RESTRICT, blank=True, null=True)
+    sales_order = models.ForeignKey(SalesOrder, on_delete=models.RESTRICT, blank=True, null=True)
 
     @property
     def allocated_qty(self) -> int:
@@ -134,7 +149,7 @@ class OrderLine(models.Model):
 
     @property
     def subtotal(self) -> float:
-        return sum(self.qty * self.price)
+        return self.qty * self.price
 
     class Meta:
         unique_together = ['order_ref', 'sku', 'qty']
@@ -207,7 +222,7 @@ class Batch(models.Model):
     reference = models.CharField(max_length=100, blank=True, default='')
     sku = models.CharField(max_length=100, blank=True, default='')
     eta = models.DateField(null=True, blank=True)
-    order_lines = models.ManyToManyField(OrderLine, through='Allocation')
+    sales_order_lines = models.ManyToManyField(SalesOrderLine, through='Allocation')
     qty = models.IntegerField()
     product = models.ForeignKey(Product, on_delete=models.RESTRICT, null=True)
 
@@ -237,7 +252,7 @@ class Batch(models.Model):
             return True
         return self.eta > other.eta
 
-    def allocate(self, line: OrderLine):
+    def allocate(self, line: SalesOrderLine):
         if self.can_allocate(line):
             Allocation.objects.create(batch=self, order_line=line, qty=min(self.available_qty, line.unallocated_qty))
 
@@ -247,7 +262,7 @@ class Batch(models.Model):
             #except IntegrityError:
                 #pass
 
-    def can_allocate(self, line: OrderLine) -> bool:
+    def can_allocate(self, line: SalesOrderLine) -> bool:
         return self.sku == line.sku and self.available_qty > 0
 
     def has_been_allocated(self) -> bool:
@@ -256,12 +271,12 @@ class Batch(models.Model):
 
 class Allocation(models.Model):
     batch = models.ForeignKey(Batch, on_delete=models.RESTRICT)
-    order_line = models.ForeignKey(OrderLine, on_delete=models.RESTRICT)
+    sales_order_line = models.ForeignKey(SalesOrderLine, on_delete=models.RESTRICT)
     date_allocated = models.DateField(auto_now_add=True, blank=True)
     qty = models.IntegerField(default=0, blank=True)
 
     class Meta:
-        unique_together = ['batch', 'order_line', 'qty']
+        unique_together = ['batch', 'sales_order_line', 'qty']
 
 
 class Reception(models.Model):
