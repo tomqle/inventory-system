@@ -1,3 +1,4 @@
+from __future__ import annotations
 from re import I
 from django.db.utils import ConnectionDoesNotExist, IntegrityError
 from django.utils.text import slugify
@@ -102,11 +103,14 @@ def update_purchase_order(**kwargs) -> PurchaseOrder:
 def create_purchase_order_line(**kwargs) -> PurchaseOrderLine:
     purchase_order_line = PurchaseOrderLine(**kwargs)
 
-    product = Product.objects.filter(sku=purchase_order_line.sku).first()
+    purchase_order_line.sku = purchase_order_line.product.sku
 
-    if product != None:
-        purchase_order_line.product = product
-        purchase_order_line.save()
+    #if purchase_order_line.sku != None and purchase_order_line.sku != '':
+        #print('hi')
+        #product = Product.objects.filter(sku=purchase_order_line.sku).first().id
+        #purchase_order_line.product = product
+
+    purchase_order_line.save()
 
     return purchase_order_line
 
@@ -175,7 +179,7 @@ def receive_purchase_order_line(**kwargs):
     reception = Reception()
     if 'qty' in kwargs.keys() and purchase_order_line.can_receive(kwargs['qty']):
         qty = kwargs['qty']
-        _create_reception(purchase_order_line, qty)
+        reception = _create_reception(purchase_order_line, qty)
 
     return reception
 
@@ -185,8 +189,6 @@ def update_receive_purchase_order_line(reception, **kwargs):
     #purchase_order_line = reception.purchase_order_line
 
     # TODO: add check for purchase_order_line
-
-    print(reception)
 
     if not reception.batch.has_been_allocated():
         if 'qty' in kwargs.keys() and reception.purchase_order_line.can_receive(kwargs['qty']):
@@ -202,6 +204,8 @@ def _create_reception(purchase_order_line, qty):
     batch = Batch.objects.create(sku=purchase_order_line.sku, product=purchase_order_line.product, qty=qty)
     reception = Reception.objects.create(purchase_order_line=purchase_order_line, batch=batch, qty=qty)
 
+    return reception
+
 def _update_reception(reception, qty):
     reception.qty = qty
     reception.save()
@@ -214,6 +218,67 @@ def _update_reception(reception, qty):
 
 
 # -------------------- END Reception services -------------------- #
+
+
+# -------------------- START Sales Order services -------------------- #
+
+# --- START Helper --- #
+
+def _sales_order_has_valid_reference(reference):
+    if SalesOrder.objects.filter(reference=reference).first() != None:
+        return False
+
+def _sales_order_valid_status(status):
+    if status in [y for (x, y) in SalesOrder.STATUS_CHOICES]:
+        return True
+    return False
+
+# --- END   Helper --- #
+
+def create_sales_order(**kwargs):
+    if 'reference' in kwargs.keys():
+        if not _sales_order_has_valid_reference(kwargs['reference']):
+            return SalesOrder()
+
+    if 'status' in kwargs.keys():
+        if kwargs['status'] == None or kwargs['status'] == '':
+            kwargs['status'] = 'DRF'
+        elif kwargs['status'] not in [x for (x, y) in PurchaseOrder.STATUS_CHOICES]:
+            return SalesOrder()
+
+    sales_order = SalesOrder.objects.create(**kwargs)
+
+    if sales_order.reference == None or sales_order.reference == '':
+        sales_order.reference = f'SO-{sales_order.id}'
+    else:
+        sales_order.reference = slugify(sales_order.reference).upper()
+
+    if sales_order.status == None or sales_order.status == '':
+        sales_order.status = 'DRF'
+
+    sales_order.save()
+
+def update_sales_order(**kwargs):
+    if 'reference' in kwargs.keys():
+        if not _sales_order_has_valid_reference(kwargs['reference']):
+            return SalesOrder()
+
+    #purchase_order = _perform_update_purchase_order(**kwargs)
+
+    sales_order = SalesOrder.objects.get(id=kwargs['id'])
+
+    if 'status' in kwargs.keys() and _sales_order_valid_status(kwargs['status']):
+        sales_order.status = kwargs.get('status', sales_order.status)
+
+    return sales_order
+
+def create_sales_order_line(**kwargs):
+    pass
+
+def update_sales_order_line(**kwargs):
+    pass
+
+# -------------------- END Sales Order services -------------------- #
 
 
 # -------------------- START Customer services -------------------- #

@@ -39,7 +39,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'inventory',
     'rest_framework',
-    'polymorphic',
 ]
 
 MIDDLEWARE = [

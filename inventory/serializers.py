@@ -42,7 +42,7 @@ class BatchSerializer(serializers.HyperlinkedModelSerializer):
 class SalesOrderSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = SalesOrder
-        fields = ['id', 'reference', 'status', 'order_date', 'customer', 'quantity', 'total']
+        fields = ['id', 'reference', 'status', 'created_date', 'customer', 'quantity', 'total']
 
     def get_total(self, instance):
         return instance.total
@@ -78,7 +78,7 @@ class ProductSerializer(serializers.HyperlinkedModelSerializer):
         return instance.incoming_qty
 
 
-class PurchaseOrderLineSerializer(serializers.HyperlinkedModelSerializer):
+class PurchaseOrderLineSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
     received_qty = serializers.SerializerMethodField()
     incoming_qty = serializers.SerializerMethodField()
@@ -86,7 +86,7 @@ class PurchaseOrderLineSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = PurchaseOrderLine
         fields = ['id', 'product', 'sku', 'qty', 'cost', 'subtotal', 'received_qty', 'incoming_qty', 'purchase_order']
-        read_only_fields = ['product']
+        read_only_fields = ['purchase_order']
 
     def get_subtotal(self, instance):
         return instance.subtotal
@@ -98,7 +98,7 @@ class PurchaseOrderLineSerializer(serializers.HyperlinkedModelSerializer):
         return instance.incoming_qty
 
 
-class PurchaseOrderSerializer(serializers.HyperlinkedModelSerializer):
+class PurchaseOrderSerializer(serializers.ModelSerializer):
     purchase_order_lines = PurchaseOrderLineSerializer(source='purchaseorderline_set', many=True, read_only=False)
 
     class Meta:
@@ -106,12 +106,13 @@ class PurchaseOrderSerializer(serializers.HyperlinkedModelSerializer):
         fields = ['id', 'reference', 'status', 'purchase_order_lines', 'supplier']
 
     def create(self, validated_data):
+        print(validated_data)
         purchase_order_lines_data = validated_data.pop('purchaseorderline_set')
         purchase_order = services.create_purchase_order(**validated_data)
 
         for purchase_order_line_data in purchase_order_lines_data:
             purchase_order_line_data['purchase_order_id'] = purchase_order.id
-            services.create_purchase_order_line(purchase_order_line_data)
+            services.create_purchase_order_line(**purchase_order_line_data)
             #product = Product.objects.get(sku=purchase_order_line_data['sku'])
             #purchase_order_line_data['product'] = product
 
@@ -140,7 +141,7 @@ class PurchaseOrderSerializer(serializers.HyperlinkedModelSerializer):
         return instance
 
 
-class ReceptionSerializer(serializers.HyperlinkedModelSerializer):
+class ReceptionSerializer(serializers.ModelSerializer):
     #id = serializers.IntegerField(required=False)
 
     class Meta:

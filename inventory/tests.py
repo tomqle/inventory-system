@@ -1,5 +1,5 @@
 from django.test import TestCase
-from inventory.models import Allocation, Batch, OrderLine, Product, PurchaseOrder, PurchaseOrderLine
+from inventory.models import Address, Allocation, Batch, Customer, Product, PurchaseOrder, PurchaseOrderLine, SalesOrder, SalesOrderLine, Supplier
 from inventory import services
 
 #-- START models tests --#
@@ -28,7 +28,7 @@ class ServiceTestCase(TestCase):
     # START batch #
 
     def test_allocate_multiple_batches_to_single_order_line(self):
-        line = OrderLine.objects.create(order_ref="ORDER-1", sku="SMALL-PRODUCT", qty=5)
+        line = SalesOrderLine.objects.create(order_ref="ORDER-1", sku="SMALL-PRODUCT", qty=5)
         batch1 = Batch.objects.create(reference="SMALL-BATCH-1", sku="SMALL-PRODUCT", qty=2)
         batch2 = Batch.objects.create(reference="SMALL-BATCH-2", sku="SMALL-PRODUCT", qty=10)
 
@@ -40,7 +40,7 @@ class ServiceTestCase(TestCase):
         self.assertEqual(batch2.available_qty, 7)
 
     def test_allocate_single_batch_to_order_line(self):
-        line = OrderLine.objects.create(order_ref="ORDER-1", sku="SMALL-PRODUCT", qty=5)
+        line = SalesOrderLine.objects.create(order_ref="ORDER-1", sku="SMALL-PRODUCT", qty=5)
         batch1 = Batch.objects.create(reference="SMALL-BATCH-1", sku="SMALL-PRODUCT", qty=0)
         batch2 = Batch.objects.create(reference="SMALL-BATCH-2", sku="SMALL-PRODUCT", qty=10)
         batch3 = Batch.objects.create(reference="SMALL-BATCH-3", sku="SMALL-PRODUCT", qty=3)
@@ -54,7 +54,7 @@ class ServiceTestCase(TestCase):
         self.assertEqual(batch3.available_qty, 3)
 
     def test_order_line_with_no_allocations(self):
-        line = OrderLine.objects.create(order_ref="ORDER-1", sku="SMALL-PRODUCT", qty=5)
+        line = SalesOrderLine.objects.create(order_ref="ORDER-1", sku="SMALL-PRODUCT", qty=5)
 
         self.assertEqual(line.allocated_qty, 0)
 
@@ -90,7 +90,8 @@ class ServiceTestCase(TestCase):
             'sku': 'FLASH-DRIVE',
             'qty': 5,
             'cost': 2,
-            'purchase_order_id': purchase_order.id
+            'purchase_order_id': purchase_order.id,
+            'product_id': product.id,
         }
 
         purchase_order_line = services.create_purchase_order_line(**purchase_order_line_dict)
@@ -100,24 +101,6 @@ class ServiceTestCase(TestCase):
         self.assertEqual(purchase_order_line.cost, 2)
         self.assertEqual(purchase_order_line.product_id, product.id)
         self.assertEqual(purchase_order_line.purchase_order_id, purchase_order.id)
-
-    def test_create_purchase_order_line(self):
-        product = Product.objects.create(name="Electric Toothbrush", status="PRV", sku="TOOTHBRUSH-ELE")
-        purchase_order = PurchaseOrder.objects.create(status="DRF", reference="PO-1")
-        purchase_order_line_data = {
-            'purchase_order_id': purchase_order.id,
-            'sku': product.sku,
-            'qty': 2,
-            'cost': 25
-        }
-        purchase_order_line = services.create_purchase_order_line(**purchase_order_line_data)
-
-        self.assertEqual(purchase_order_line.id, 1)
-        self.assertEqual(purchase_order_line.purchase_order_id, 1)
-        self.assertEqual(purchase_order_line.product_id, 1)
-        self.assertEqual(purchase_order_line.sku, "TOOTHBRUSH-ELE")
-        self.assertEqual(purchase_order_line.qty, 2)
-        self.assertEqual(purchase_order_line.cost, 25)
 
     def test_update_purchase_order_lines(self):
         product1 = Product.objects.create(name="Heart Keychain", status="PRV", sku="KEYCHAIN-HEART")
@@ -133,6 +116,9 @@ class ServiceTestCase(TestCase):
         }
 
         purchase_order_line = services.update_purchase_order_line(**purchase_order_line_data)
+
+        for po_line in PurchaseOrderLine.objects.all():
+            print(po_line)
 
         self.assertEqual(purchase_order_line.id, 1)
         self.assertEqual(purchase_order_line.purchase_order_id, 1)
@@ -182,18 +168,54 @@ class ServiceTestCase(TestCase):
     def test_receive_purchase_order_line(self):
         product = Product.objects.create(name="Mechanical Keyboard", status="PRV", sku="KEYBOARD-MECH")
         purchase_order = PurchaseOrder.objects.create(reference="PO-1", status="APV")
-        purchase_order_line = PurchaseOrderLine.objects.create(purchase_order=purchase_order, product=product, sku=product.sku, qty=3, cost=4)
+        purchase_order_line = PurchaseOrderLine.objects.create(purchase_order=purchase_order, product=product, sku=product.sku, qty=10, cost=4)
+        received_qty = 5
 
         reception_data = {
-            "purchase_order_line_id": purchase_order_line.id,
-            "qty": 2
+            "purchase_order_line": purchase_order_line,
+            "qty": received_qty
         }
 
-        self.assertEqual()
+        reception = services.receive_purchase_order_line(**reception_data)
+        batch = reception.batch
+
+        self.assertEqual(reception.qty, received_qty)
+        self.assertEqual(batch.qty, received_qty)
+        self.assertEqual(product.qty, received_qty)
+        self.assertEqual(purchase_order_line.received_qty, received_qty)
 
     def test_update_receive_purchase_order_line(self):
-        self.assertEqual()
+        pass
+        #self.assertEqual()
 
     # END   Reception #
+
+    # START SalesOrder #
+
+    def test_create_sales_order(self):
+        product = Product.objects.create(name="Mechanical Keyboard", status="PRV", sku="KEYBOARD-MECH")
+        address = Address.objects.create(address1="8584 Industrial Rd", city="Naperville", state="IL", postal_code="60540", country="US")
+        customer = Customer.objects.create(status='ACT', company='Bland Co.', name='Bill Bland', email='bill@blandco.com', phone='800-123-4567', payment_terms="Pay in advance", address=address)
+        sales_order_data = {
+            "status": "APV",
+            "customer": customer,
+        }
+
+        #sales_order = services.create_sales_order(**sales_order_data)
+
+        #self.assertEqual(sales_order.status, "APV")
+        #self.assertEqual(sales_order.customer_id, customer.id)
+        #self.assertEqual(sales_order.reference, "SO-1")
+
+    def test_update_sales_order(self):
+        pass
+
+    def test_create_sales_order_line(self):
+        pass
+
+    def test_update_sales_order_line(self):
+        pass
+
+    # END   SalesOrder #
 
 #-- END services tests --#

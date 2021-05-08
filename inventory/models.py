@@ -4,8 +4,6 @@ from django.db.models import fields
 from django.db.utils import IntegrityError
 from datetime import datetime
 
-from polymorphic.models import PolymorphicModel
-
 # Create your models here.
 
 
@@ -78,10 +76,52 @@ class Product(models.Model):
     def incoming_qty(self) -> int:
         return sum(po_line.incoming_qty for po_line in self.purchaseorderline_set.all())
 
-#class TransactionLineOut(models.Model):
-    #pass
 
-class SalesOrder(models.Model):
+class Transaction(models.Model):
+    created_date = models.DateField(auto_now_add=True, blank=True)
+    reference = models.CharField(max_length=100, blank=True, default='')
+
+    def get_instance(self):
+        if hasattr(self, 'purchase_order'):
+            return self.purchase_order
+        if hasattr(self, 'sales_order'):
+            return self.sales_order
+        return self
+
+
+class TransactionLine(models.Model):
+    sku = models.CharField(max_length=100, blank=True, default='')
+    qty = models.IntegerField()
+    cost = models.FloatField(blank=True, default=0.0)
+    product = models.ForeignKey(Product, on_delete=models.RESTRICT, blank=True, null=True)
+
+    def get_instance(self):
+        if hasattr(self, 'transaction_line_in'):
+            instance = self.transaction_line_in
+            if hasattr(instance, 'purchase_order_line'):
+                return instance.purchase_order_line
+            if hasattr(instance, 'adjustment_line_in'):
+                return None
+            return instance
+        if hasattr(self, 'transaction_line_out'):
+            instance = self.transaction_line_out
+            if hasattr(instance, 'sales_order_line'):
+                return instance.sales_order_line
+            if hasattr(instance, 'adjustment_line_out'):
+                return None
+            return instance
+        return self
+
+
+class TransactionLineIn(TransactionLine):
+    pass
+
+
+class TransactionLineOut(TransactionLine):
+    pass
+
+
+class SalesOrder(Transaction):
     NEW = 'NEW'
     AWAITING_PAYMENT = "PMT"
     PROCESSING = 'PRC'
@@ -104,8 +144,8 @@ class SalesOrder(models.Model):
         (VOID, 'Void'),
     ]
 
-    order_date = models.DateField(auto_now_add=True, blank=True)
-    reference = models.CharField(max_length=100, blank=True, default='')
+    #order_date = models.DateField(auto_now_add=True, blank=True)
+    #reference = models.CharField(max_length=100, blank=True, default='')
     #reference = models.CharField(max_length=100, blank=True, null=True, default='', unique=True)
     status = models.CharField(max_length=3, choices=STATUS_CHOICES, default=NEW)
     customer = models.ForeignKey(Customer, on_delete=models.RESTRICT, blank=True, null=True)
@@ -126,13 +166,13 @@ class SalesOrder(models.Model):
         return sum(order_line.qty for order_line in self.orderline_set.all())
 
 
-class SalesOrderLine(models.Model):
+class SalesOrderLine(TransactionLineOut):
     order_ref = models.CharField(max_length=100, blank=True, default='')
-    sku = models.CharField(max_length=100, blank=True, default='')
-    qty = models.IntegerField()
-    cost = models.FloatField(blank=True, default=0.0)
+    #sku = models.CharField(max_length=100, blank=True, default='')
+    #qty = models.IntegerField()
+    #cost = models.FloatField(blank=True, default=0.0)
     price = models.FloatField(blank=True, default=0.0)
-    product = models.ForeignKey(Product, on_delete=models.RESTRICT, blank=True, null=True)
+    #product = models.ForeignKey(Product, on_delete=models.RESTRICT, blank=True, null=True)
     sales_order = models.ForeignKey(SalesOrder, on_delete=models.RESTRICT, blank=True, null=True)
 
     @property
@@ -151,11 +191,11 @@ class SalesOrderLine(models.Model):
     def subtotal(self) -> float:
         return self.qty * self.price
 
-    class Meta:
-        unique_together = ['order_ref', 'sku', 'qty']
+    #class Meta:
+        #unique_together = ['order_ref', 'sku', 'qty']
 
 
-class PurchaseOrder(models.Model):
+class PurchaseOrder(Transaction):
     AWAITING_APPROVAL = 'AWA'
     APPROVED = 'APV'
     DRAFT = 'DRF'
@@ -172,8 +212,8 @@ class PurchaseOrder(models.Model):
         (VOID, 'Void'),
     ]
 
-    created_date = models.DateField(auto_now_add=True, blank=True)
-    reference = models.CharField(max_length=100, blank=True, null=True, default='', unique=True)
+    #created_date = models.DateField(auto_now_add=True, blank=True)
+    #reference = models.CharField(max_length=100, blank=True, null=True, default='', unique=True)
     status = models.CharField(max_length=3, choices=STATUS_CHOICES, blank=True, null=True, default=DRAFT)
     supplier = models.ForeignKey(Supplier, on_delete=models.RESTRICT, blank=True, null=True)
 
@@ -185,12 +225,12 @@ class PurchaseOrder(models.Model):
         return super(PurchaseOrder, self).save(*args, **kwargs)
 
 
-class PurchaseOrderLine(models.Model):
+class PurchaseOrderLine(TransactionLineIn):
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.RESTRICT)
-    product = models.ForeignKey(Product, on_delete=models.RESTRICT)
-    qty = models.IntegerField(default=1, blank=True)
-    cost = models.IntegerField(default=0, blank=True)
-    sku = models.CharField(max_length=100, blank=True, default='')
+    #product = models.ForeignKey(Product, on_delete=models.RESTRICT)
+    #qty = models.IntegerField(default=1, blank=True)
+    #cost = models.IntegerField(default=0, blank=True)
+    #sku = models.CharField(max_length=100, blank=True, default='')
 
     @property
     def received_qty(self):
@@ -254,7 +294,7 @@ class Batch(models.Model):
 
     def allocate(self, line: SalesOrderLine):
         if self.can_allocate(line):
-            Allocation.objects.create(batch=self, order_line=line, qty=min(self.available_qty, line.unallocated_qty))
+            Allocation.objects.create(batch=self, sales_order_line=line, qty=min(self.available_qty, line.unallocated_qty))
 
             #try:
                 #with transaction.atomic():
@@ -275,8 +315,8 @@ class Allocation(models.Model):
     date_allocated = models.DateField(auto_now_add=True, blank=True)
     qty = models.IntegerField(default=0, blank=True)
 
-    class Meta:
-        unique_together = ['batch', 'sales_order_line', 'qty']
+    #class Meta:
+        #unique_together = ['batch', 'sales_order_line', 'qty']
 
 
 class Reception(models.Model):
@@ -309,13 +349,13 @@ class InboundShipment(models.Model):
 
 class InboundShipmentLine(models.Model):
     inbound_shipment = models.ForeignKey(InboundShipment, on_delete=models.RESTRICT)
-    purchase_order_line = models.ForeignKey(PurchaseOrderLine, on_delete=models.RESTRICT)
+    #purchase_order_line = models.ForeignKey(PurchaseOrderLine, on_delete=models.RESTRICT)
     qty = models.IntegerField(default=1, blank=True)
 
     @property
     def qty_received(self) -> int:
         return sum(batch.qty for batch in self.batch_set.all())
 
-    def is_valid_qty(self) -> bool:
-        return self.qty <= self.purchase_order_line.qty
+    #def is_valid_qty(self) -> bool:
+        #return self.qty <= self.purchase_order_line.qty
 
